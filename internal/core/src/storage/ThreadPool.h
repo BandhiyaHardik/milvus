@@ -33,13 +33,19 @@ namespace milvus {
 
 class ThreadPool {
  public:
-    explicit ThreadPool(const int thread_core_coefficient,
-                        const std::string& name)
-        : shutdown_(false), name_(name) {
+    explicit ThreadPool(const int thread_core_coefficient, std::string name)
+        : shutdown_(false), name_(std::move(name)) {
         idle_threads_size_ = 0;
         current_threads_size_ = 0;
         min_threads_size_ = CPU_NUM;
         max_threads_size_ = CPU_NUM * thread_core_coefficient;
+
+        // only IO pool will set large limit, but the CPU helps nothing to IO operations,
+        // we need to limit the max thread num, each thread will download 16 MiB data,
+        // it should be not greater than 256 (4GiB data) to avoid OOM and send too many requests to object storage
+        if (max_threads_size_ > 256) {
+            max_threads_size_ = 256;
+        }
         LOG_SEGCORE_INFO_ << "Init thread pool:" << name_
                           << " with min worker num:" << min_threads_size_
                           << " and max worker num:" << max_threads_size_;
@@ -67,6 +73,11 @@ class ThreadPool {
     GetThreadNum() {
         std::lock_guard<std::mutex> lock(mutex_);
         return current_threads_size_;
+    }
+
+    size_t
+    GetMaxThreadNum() {
+        return max_threads_size_;
     }
 
     template <typename F, typename... Args>
